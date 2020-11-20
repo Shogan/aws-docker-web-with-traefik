@@ -1,0 +1,30 @@
+{
+  "name": "eip-manager",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "mocha -r ts-node/register tests/**/*.spec.ts",
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "author": "Sean Duffy",
+  "license": "ISC",
+  "devDependencies": {
+    "@aws-cdk/assert": "1.65.0",
+    "@types/aws-lambda": "^8.10.63",
+    "@types/chai": "^4.2.13",
+    "@types/jest": "^25.2.1",
+    "@types/node": "^10.17.5",
+    "aws-sdk": "^2.758.0",
+    "chai": "^4.2.0",
+    "jest": "^25.5.0",
+    "mocha": "^8.1.3",
+    "sinon": "^9.1.0",
+    "sinon-chai": "^3.5.0",
+    "ts-jest": "^25.3.1",
+    "ts-node": "^9.0.0",
+    "ts-sinon": "^2.0.1",
+    "typescript": "~3.9.2"
+  }
+}
