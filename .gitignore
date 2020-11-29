@@ -13,3 +13,5 @@ cdk.context.json
 .parcel-cache
 
 .npmrc
+
+example-config.js

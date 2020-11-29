@@ -5,10 +5,11 @@ import * as events from '@aws-cdk/aws-events';
 import * as targets from '@aws-cdk/aws-events-targets';
 import * as iam from '@aws-cdk/aws-iam';
 import * as efs from '@aws-cdk/aws-efs';
+import * as sm from '@aws-cdk/aws-secretsmanager';
 import * as fs from "fs";
 import { InitConfig, SubnetType } from '@aws-cdk/aws-ec2';
 import { MixedAutoScalingGroup } from './mixed-autoscaling-group';
-import { Duration, RemovalPolicy, Stack } from '@aws-cdk/core';
+import { Duration, RemovalPolicy, Stack, Tags } from '@aws-cdk/core';
 import { Signals } from '@aws-cdk/aws-autoscaling';
 import { LifecyclePolicy, PerformanceMode, ThroughputMode } from '@aws-cdk/aws-efs';
 
@@ -23,9 +24,20 @@ export class AwsDockerWebWithTraefikStack extends cdk.Stack {
     const traefikDynContentUrl = "https://gist.githubusercontent.com/example/0111f05fb40a4aa00e9e8523b38ad129/raw/32372bbd0b195fe131e8513eccc881c7b007ac7c/traefik_dynamic.toml"; // this should point to your own dynamic traefik config in toml format.
     const emailForLetsEncryptAcmeResolver = 'email = "youremail@example.com"'; // update this to your own email address for lets encrypt certs
     const efsAutomaticBackups = false; // set to true to enable automatic backups for EFS
+    const customDockerComposeUrl = "https://gist.githubusercontent.com/Shogan/815f03dd5c611b8dd3da9a299ac20ac5/raw/5b9463519497c0943d6258ad01c002db8e3a5f8a/docker-compose.yml"; // Point to your own, custom docker-compose.yml stack of services. These will be started at instance start.
+    const envSecretsArn = "";
 
     const vpc = ec2.Vpc.fromLookup(this, 'VPC', {
       vpcId: vpcId
+    });
+
+    const envSecrets = envSecretsArn ? sm.Secret.fromSecretCompleteArn(this, 'EnvSecrets', envSecretsArn) : new sm.Secret(this, 'EnvSecrets', {
+      description: "Traefik Web Environment Secrets",
+      secretName: "traefik/web/environment",
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'user' }),
+        generateStringKey: 'EXAMPLE',
+      },
     });
 
     const publicSubnets = vpc.selectSubnets({
@@ -48,7 +60,7 @@ export class AwsDockerWebWithTraefikStack extends cdk.Stack {
 
     ec2Sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'allow HTTP from anywhere');
     ec2Sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'allow HTTPS access from anywhere');
-    ec2Sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(8080), 'allow HTTP 8080 access from anywhere');
+    ec2Sg.addIngressRule(ec2.Peer.ipv4(managementLocationCidr), ec2.Port.tcp(8080), 'allow HTTP 8080 access from specific IP');
     ec2Sg.addIngressRule(ec2.Peer.ipv4(managementLocationCidr), ec2.Port.tcp(22), 'allow SSH access from specific IP');
 
     const efsMountPointSg = new ec2.SecurityGroup(this, 'EfsMountPointSg', {
@@ -83,7 +95,6 @@ export class AwsDockerWebWithTraefikStack extends cdk.Stack {
       maxCapacity: 1,
       securityGroup: ec2Sg,
       signals: signals,
-      
       keyName: keypairName,
       vpcSubnets: publicSubnets,
       machineImage: amznLinuxArm64,
@@ -96,9 +107,26 @@ export class AwsDockerWebWithTraefikStack extends cdk.Stack {
         email: emailForLetsEncryptAcmeResolver,
         region: Stack.of(this).region,
         stackName: Stack.of(this).stackName,
-        efsFsId: fileSystem.fileSystemId
+        efsFsId: fileSystem.fileSystemId,
+        customDockerComposeUrl: customDockerComposeUrl,
       }
     });
+
+    Tags.of(asg).add("EnvSecretsArn", envSecrets.secretArn);
+
+    asg.role.attachInlinePolicy(new iam.Policy(this, 'Ec2InstanceProfileRole', {
+      policyName: "secretsmanager-access",
+      statements: [
+        new iam.PolicyStatement({
+          resources: [envSecrets.secretArn],
+          actions: ["secretsmanager:GetSecretValue"]
+        }),
+        new iam.PolicyStatement({
+          resources: ["*"],
+          actions: ["ec2:DescribeTags"]
+        }),
+      ]
+    }));
 
     const eipManagerLambda = new lambda.Function(this, 'EipManagerLambda', {
       functionName: 'traefik-ec2-eip-manager',
